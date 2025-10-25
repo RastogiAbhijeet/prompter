@@ -92,6 +92,8 @@ function App() {
   const [newSkillInputs, setNewSkillInputs] = useState<{
     [roleId: number]: string;
   }>({});
+  const [showReferenceModal, setShowReferenceModal] = useState(false);
+  const [referenceSearchTerm, setReferenceSearchTerm] = useState("");
 
   const addTask = () => {
     const newTask: Task = {
@@ -873,7 +875,7 @@ function App() {
     setNextRoleId(1);
   };
 
-  // Start a new prompt
+  // Start a new prompt - with option to reference an existing one
   const newPrompt = () => {
     if (
       tasks.length > 0 ||
@@ -891,6 +893,13 @@ function App() {
       }
     }
 
+    // Show reference modal to optionally select a past prompt
+    setShowReferenceModal(true);
+    setReferenceSearchTerm("");
+  };
+
+  // Start completely fresh prompt without reference
+  const startFreshPrompt = () => {
     setPromptTitle("");
     setCurrentPromptId(null);
     setTasks([]);
@@ -902,6 +911,62 @@ function App() {
     setNextGuardRailId(1);
     setNextRoleId(1);
     setSelectedPromptIds(new Set());
+    setShowReferenceModal(false);
+  };
+
+  // Start new prompt based on a reference
+  const startFromReference = (prompt: StoredPrompt) => {
+    setPromptTitle(`Copy of ${prompt.title}`);
+    setCurrentPromptId(null); // New prompt, not the same as reference
+    setRoles(prompt.roles);
+    setContexts(prompt.contexts);
+    setTasks(prompt.tasks);
+    setGuardRails(prompt.guardRails);
+
+    // Update next IDs to prevent conflicts (handle empty arrays with default 0)
+    setNextRoleId(
+      prompt.roles.length > 0
+        ? Math.max(...prompt.roles.map((r) => r.id)) + 1
+        : 1
+    );
+    setNextContextId(
+      prompt.contexts.length > 0
+        ? Math.max(...prompt.contexts.map((c) => c.id)) + 1
+        : 1
+    );
+    setNextTaskId(
+      prompt.tasks.length > 0
+        ? Math.max(...prompt.tasks.map((t) => t.id)) + 1
+        : 1
+    );
+    setNextGuardRailId(
+      prompt.guardRails.length > 0
+        ? Math.max(...prompt.guardRails.map((g) => g.id)) + 1
+        : 1
+    );
+
+    setShowReferenceModal(false);
+  };
+
+  // Filter prompts based on search term
+  const getFilteredPrompts = () => {
+    if (!referenceSearchTerm.trim()) {
+      return historicalPrompts;
+    }
+
+    const searchLower = referenceSearchTerm.toLowerCase();
+    return historicalPrompts.filter(
+      (prompt) =>
+        prompt.title.toLowerCase().includes(searchLower) ||
+        prompt.roles.some((r) => r.text.toLowerCase().includes(searchLower)) ||
+        prompt.contexts.some((c) =>
+          c.text.toLowerCase().includes(searchLower)
+        ) ||
+        prompt.tasks.some((t) => t.text.toLowerCase().includes(searchLower)) ||
+        prompt.guardRails.some((g) =>
+          g.text.toLowerCase().includes(searchLower)
+        )
+    );
   };
 
   // Keyboard shortcuts
@@ -1855,6 +1920,95 @@ function App() {
                   )}
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reference Prompt Modal */}
+      {showReferenceModal && (
+        <div
+          className="library-modal-overlay"
+          onClick={() => setShowReferenceModal(false)}
+        >
+          <div
+            className="library-modal reference-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="library-modal-header">
+              <h3>📚 Start New Prompt</h3>
+              <button
+                className="close-button"
+                onClick={() => setShowReferenceModal(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="reference-modal-content">
+              <p className="reference-description">
+                Start from scratch or use a past prompt as reference?
+              </p>
+
+              <button className="start-fresh-button" onClick={startFreshPrompt}>
+                ✨ Start From Scratch
+              </button>
+
+              <div className="reference-divider">
+                <span>or select a reference</span>
+              </div>
+
+              <div className="reference-search">
+                <input
+                  type="text"
+                  className="reference-search-input"
+                  placeholder="Search prompts by title, role, task..."
+                  value={referenceSearchTerm}
+                  onChange={(e) => setReferenceSearchTerm(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div className="reference-prompts-list">
+                {getFilteredPrompts().length === 0 ? (
+                  <div className="empty-reference">
+                    {referenceSearchTerm.trim() ? (
+                      <p>No prompts match your search.</p>
+                    ) : (
+                      <p>No saved prompts yet. Start fresh!</p>
+                    )}
+                  </div>
+                ) : (
+                  getFilteredPrompts().map((prompt) => (
+                    <div
+                      key={prompt.id}
+                      className="reference-prompt-item"
+                      onClick={() => startFromReference(prompt)}
+                    >
+                      <div className="reference-prompt-title">
+                        {prompt.title}
+                      </div>
+                      <div className="reference-prompt-date">
+                        {new Date(prompt.timestamp).toLocaleDateString()}
+                      </div>
+                      <div className="reference-prompt-stats">
+                        {prompt.roles.length > 0 && (
+                          <span>👤 {prompt.roles.length}</span>
+                        )}
+                        {prompt.contexts.length > 0 && (
+                          <span>📝 {prompt.contexts.length}</span>
+                        )}
+                        {prompt.tasks.length > 0 && (
+                          <span>✅ {prompt.tasks.length}</span>
+                        )}
+                        {prompt.guardRails.length > 0 && (
+                          <span>🛡️ {prompt.guardRails.length}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>
