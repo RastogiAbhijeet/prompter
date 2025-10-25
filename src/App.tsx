@@ -89,6 +89,7 @@ function App() {
     taskId: number;
     subtaskId: number;
   } | null>(null);
+  const [newSkillInputs, setNewSkillInputs] = useState<{ [roleId: number]: string }>({});
 
   const addTask = () => {
     const newTask: Task = {
@@ -366,6 +367,43 @@ function App() {
     setRoles(
       roles.map((role) => (role.id === roleId ? { ...role, skills } : role))
     );
+  };
+
+  const addSkillToRole = (roleId: number) => {
+    const skillText = newSkillInputs[roleId]?.trim();
+    if (!skillText) return;
+
+    const role = roles.find((r) => r.id === roleId);
+    if (!role) return;
+
+    // Avoid duplicate skills
+    if (role.skills.includes(skillText)) {
+      setNewSkillInputs({ ...newSkillInputs, [roleId]: "" });
+      return;
+    }
+
+    updateRoleSkills(roleId, [...role.skills, skillText]);
+    setNewSkillInputs({ ...newSkillInputs, [roleId]: "" });
+  };
+
+  const removeSkillFromRole = (roleId: number, skillToRemove: string) => {
+    const role = roles.find((r) => r.id === roleId);
+    if (!role) return;
+
+    updateRoleSkills(
+      roleId,
+      role.skills.filter((skill) => skill !== skillToRemove)
+    );
+  };
+
+  const handleSkillInputKeyPress = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    roleId: number
+  ) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addSkillToRole(roleId);
+    }
   };
 
   const deleteRole = (roleId: number) => {
@@ -1490,22 +1528,45 @@ function App() {
                           ×
                         </button>
                       </div>
-                      <div className="role-skills">
-                        <input
-                          type="text"
-                          className="skills-input"
-                          placeholder="Skills (comma-separated)..."
-                          value={role.skills.join(", ")}
-                          onChange={(e) =>
-                            updateRoleSkills(
-                              role.id,
-                              e.target.value
-                                .split(",")
-                                .map((s) => s.trim())
-                                .filter((s) => s)
-                            )
-                          }
-                        />
+                      <div className="role-skills-section">
+                        <div className="skills-tags">
+                          {role.skills.map((skill, index) => (
+                            <span key={index} className="skill-tag">
+                              {skill}
+                              <button
+                                className="skill-remove"
+                                onClick={() => removeSkillFromRole(role.id, skill)}
+                                title="Remove skill"
+                                aria-label={`Remove ${skill}`}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="add-skill-input">
+                          <input
+                            type="text"
+                            className="skill-input"
+                            placeholder="Add skill..."
+                            value={newSkillInputs[role.id] || ""}
+                            onChange={(e) =>
+                              setNewSkillInputs({
+                                ...newSkillInputs,
+                                [role.id]: e.target.value,
+                              })
+                            }
+                            onKeyPress={(e) => handleSkillInputKeyPress(e, role.id)}
+                          />
+                          <button
+                            className="add-skill-button"
+                            onClick={() => addSkillToRole(role.id)}
+                            disabled={!newSkillInputs[role.id]?.trim()}
+                            title="Add skill"
+                          >
+                            +
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
