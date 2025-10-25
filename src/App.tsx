@@ -1531,23 +1531,25 @@ function App() {
                         </button>
                       </div>
                       <div className="role-skills-section">
-                        <div className="skills-tags">
-                          {role.skills.map((skill, index) => (
-                            <span key={index} className="skill-tag">
-                              {skill}
-                              <button
-                                className="skill-remove"
-                                onClick={() =>
-                                  removeSkillFromRole(role.id, skill)
-                                }
-                                title="Remove skill"
-                                aria-label={`Remove ${skill}`}
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
+                        {role.skills.length > 0 && (
+                          <ul className="skills-list">
+                            {role.skills.map((skill, index) => (
+                              <li key={index} className="skill-item">
+                                <span className="skill-text">{skill}</span>
+                                <button
+                                  className="skill-remove"
+                                  onClick={() =>
+                                    removeSkillFromRole(role.id, skill)
+                                  }
+                                  title="Remove skill"
+                                  aria-label={`Remove ${skill}`}
+                                >
+                                  ×
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                         <div className="add-skill-input">
                           <input
                             type="text"
