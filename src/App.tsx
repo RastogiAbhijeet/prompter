@@ -1,5 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import "./App.css";
+import {
+  TEMPLATES,
+  type Template,
+  CONTEXT_LIBRARY,
+  TASK_LIBRARY,
+  GUARDRAIL_LIBRARY,
+  ROLE_LIBRARY,
+  type LibraryItem,
+} from "./templates";
 
 interface SubTask {
   id: number;
@@ -31,6 +40,13 @@ function App() {
   const [nextGuardRailId, setNextGuardRailId] = useState(1);
   const [copySuccess, setCopySuccess] = useState(false);
   const [formatType, setFormatType] = useState<"text" | "xml">("text");
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showLibrary, setShowLibrary] = useState<
+    "tasks" | "contexts" | "guardrails" | "roles" | null
+  >(null);
+  const [selectedRoles, setSelectedRoles] = useState<Set<string>>(new Set());
+  const [activeRoleCategory, setActiveRoleCategory] =
+    useState<string>("Frontend");
   const taskInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
 
   const [draggedTaskIndex, setDraggedTaskIndex] = useState<number | null>(null);
@@ -388,6 +404,114 @@ function App() {
     }
   };
 
+  const loadTemplate = (template: Template) => {
+    // Load contexts
+    const newContexts: ContextItem[] = template.contexts.map((text, index) => ({
+      id: nextContextId + index,
+      text,
+    }));
+    setContexts(newContexts);
+    setNextContextId(nextContextId + template.contexts.length);
+
+    // Load tasks and subtasks
+    let taskIdCounter = nextTaskId;
+    const newTasks: Task[] = template.tasks.map((taskTemplate) => {
+      const task: Task = {
+        id: taskIdCounter++,
+        text: taskTemplate.text,
+        subtasks: taskTemplate.subtasks
+          ? taskTemplate.subtasks.map((subtaskText, index) => ({
+              id: index + 1,
+              text: subtaskText,
+            }))
+          : [],
+      };
+      return task;
+    });
+    setTasks(newTasks);
+    setNextTaskId(taskIdCounter);
+
+    // Load guard-rails
+    const newGuardRails: GuardRail[] = template.guardRails.map(
+      (text, index) => ({
+        id: nextGuardRailId + index,
+        text,
+      })
+    );
+    setGuardRails(newGuardRails);
+    setNextGuardRailId(nextGuardRailId + template.guardRails.length);
+
+    // Close dropdown
+    setShowTemplates(false);
+  };
+
+  // Add items from library
+  const addTaskFromLibrary = (item: LibraryItem) => {
+    const newTask: Task = {
+      id: nextTaskId,
+      text: item.text,
+      subtasks: item.subtasks
+        ? item.subtasks.map((text, index) => ({ id: index + 1, text }))
+        : [],
+    };
+    setTasks([...tasks, newTask]);
+    setNextTaskId(nextTaskId + 1);
+    setShowLibrary(null);
+  };
+
+  const addContextFromLibrary = (item: LibraryItem) => {
+    const newContext: ContextItem = {
+      id: nextContextId,
+      text: item.text,
+    };
+    setContexts([...contexts, newContext]);
+    setNextContextId(nextContextId + 1);
+    setShowLibrary(null);
+  };
+
+  const toggleRoleSelection = (roleId: string) => {
+    const newSelected = new Set(selectedRoles);
+    if (newSelected.has(roleId)) {
+      newSelected.delete(roleId);
+    } else {
+      newSelected.add(roleId);
+    }
+    setSelectedRoles(newSelected);
+  };
+
+  const addSelectedRoles = () => {
+    let contextIdCounter = nextContextId;
+    const newContexts: ContextItem[] = [];
+
+    selectedRoles.forEach((roleId) => {
+      const role = ROLE_LIBRARY.find((r) => r.id === roleId);
+      if (role) {
+        const skillsText = role.skills
+          ? ` (Skills: ${role.skills.join(", ")})`
+          : "";
+        newContexts.push({
+          id: contextIdCounter++,
+          text: `Role: ${role.text}${skillsText}`,
+        });
+      }
+    });
+
+    setContexts([...contexts, ...newContexts]);
+    setNextContextId(contextIdCounter);
+    setSelectedRoles(new Set());
+    setShowLibrary(null);
+  };
+
+  const addGuardRailFromLibrary = (item: LibraryItem) => {
+    const newGuardRail: GuardRail = {
+      id: nextGuardRailId,
+      text: item.text,
+    };
+    setGuardRails([...guardRails, newGuardRail]);
+    setNextGuardRailId(nextGuardRailId + 1);
+    setShowLibrary(null);
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -416,9 +540,46 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [tasks]);
 
+  // Close templates dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (showTemplates && !target.closest(".templates-dropdown-container")) {
+        setShowTemplates(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showTemplates]);
+
   return (
     <div className="app-container">
-      <h1>Prompt Generator</h1>
+      <div className="header-row">
+        <h1>Prompt Generator</h1>
+        <div className="templates-dropdown-container">
+          <button
+            className="templates-button"
+            onClick={() => setShowTemplates(!showTemplates)}
+          >
+            📋 Load Template
+          </button>
+          {showTemplates && (
+            <div className="templates-dropdown">
+              {TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  className="template-item"
+                  onClick={() => loadTemplate(template)}
+                >
+                  <div className="template-name">{template.name}</div>
+                  <div className="template-category">{template.category}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Keyboard Shortcuts Display */}
       <div className="shortcuts-text">
@@ -472,9 +633,18 @@ function App() {
         <div className="section tasks-section">
           <div className="section-header">
             <h2>Tasks & SubTasks</h2>
-            <button className="add-button" onClick={addTask}>
-              + Add Task
-            </button>
+            <div className="button-group">
+              <button className="add-button" onClick={addTask}>
+                + Add Task
+              </button>
+              <button
+                className="library-button"
+                onClick={() => setShowLibrary("tasks")}
+                title="Pick from library"
+              >
+                📚
+              </button>
+            </div>
           </div>
 
           <div className="tasks-list">
@@ -503,7 +673,9 @@ function App() {
                     placeholder="Enter task description..."
                     value={task.text}
                     onChange={(e) => updateTaskText(task.id, e.target.value)}
-                    ref={(el) => (taskInputRefs.current[task.id] = el)}
+                    ref={(el) => {
+                      taskInputRefs.current[task.id] = el;
+                    }}
                   />
                   <button
                     className="add-subtask-button"
@@ -587,9 +759,25 @@ function App() {
         <div className="section context-section">
           <div className="section-header">
             <h2>Context</h2>
-            <button className="add-button" onClick={addContext}>
-              + Add Context
-            </button>
+            <div className="button-group">
+              <button className="add-button" onClick={addContext}>
+                + Add Context
+              </button>
+              <button
+                className="library-button"
+                onClick={() => setShowLibrary("contexts")}
+                title="Pick from library"
+              >
+                📚
+              </button>
+              <button
+                className="role-button"
+                onClick={() => setShowLibrary("roles")}
+                title="Add role"
+              >
+                👤
+              </button>
+            </div>
           </div>
 
           <div className="items-list">
@@ -642,9 +830,18 @@ function App() {
         <div className="section guardrails-section">
           <div className="section-header">
             <h2>Guard-rails</h2>
-            <button className="add-button" onClick={addGuardRail}>
-              + Add Guard-rail
-            </button>
+            <div className="button-group">
+              <button className="add-button" onClick={addGuardRail}>
+                + Add Guard-rail
+              </button>
+              <button
+                className="library-button"
+                onClick={() => setShowLibrary("guardrails")}
+                title="Pick from library"
+              >
+                📚
+              </button>
+            </div>
           </div>
 
           <div className="items-list">
@@ -693,6 +890,141 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Library Modal */}
+      {showLibrary && (
+        <div
+          className="library-modal-overlay"
+          onClick={() => setShowLibrary(null)}
+        >
+          <div className="library-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="library-modal-header">
+              <h3>
+                {showLibrary === "tasks" && "📚 Task Library"}
+                {showLibrary === "contexts" && "📚 Context Library"}
+                {showLibrary === "guardrails" && "📚 Guard-rail Library"}
+                {showLibrary === "roles" && "👤 Role Library"}
+              </h3>
+              <button
+                className="close-button"
+                onClick={() => setShowLibrary(null)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="library-items">
+              {showLibrary === "tasks" &&
+                TASK_LIBRARY.map((item) => (
+                  <div
+                    key={item.id}
+                    className="library-item"
+                    onClick={() => addTaskFromLibrary(item)}
+                  >
+                    <div className="library-item-text">{item.text}</div>
+                    <div className="library-item-category">{item.category}</div>
+                    {item.subtasks && (
+                      <div className="library-item-subtasks">
+                        {item.subtasks.length} subtasks
+                      </div>
+                    )}
+                  </div>
+                ))}
+              {showLibrary === "contexts" &&
+                CONTEXT_LIBRARY.map((item) => (
+                  <div
+                    key={item.id}
+                    className="library-item"
+                    onClick={() => addContextFromLibrary(item)}
+                  >
+                    <div className="library-item-text">{item.text}</div>
+                    <div className="library-item-category">{item.category}</div>
+                  </div>
+                ))}
+              {showLibrary === "guardrails" &&
+                GUARDRAIL_LIBRARY.map((item) => (
+                  <div
+                    key={item.id}
+                    className="library-item"
+                    onClick={() => addGuardRailFromLibrary(item)}
+                  >
+                    <div className="library-item-text">{item.text}</div>
+                    <div className="library-item-category">{item.category}</div>
+                  </div>
+                ))}
+              {showLibrary === "roles" && (
+                <>
+                  <div className="role-categories">
+                    {[
+                      "Frontend",
+                      "Backend",
+                      "FullStack",
+                      "DevOps",
+                      "Blockchain",
+                      "AI",
+                      "Mobile",
+                    ].map((cat) => (
+                      <button
+                        key={cat}
+                        className={`category-tab ${
+                          activeRoleCategory === cat ? "active" : ""
+                        }`}
+                        onClick={() => setActiveRoleCategory(cat)}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="role-items">
+                    {ROLE_LIBRARY.filter(
+                      (r) => r.category === activeRoleCategory
+                    ).map((item) => (
+                      <div
+                        key={item.id}
+                        className={`role-item ${
+                          selectedRoles.has(item.id) ? "selected" : ""
+                        }`}
+                        onClick={() => toggleRoleSelection(item.id)}
+                      >
+                        <div className="role-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={selectedRoles.has(item.id)}
+                            onChange={() => {}}
+                            aria-label={`Select ${item.text}`}
+                          />
+                        </div>
+                        <div className="role-content">
+                          <div className="role-item-text">{item.text}</div>
+                          {item.skills && (
+                            <div className="role-skills">
+                              {item.skills.map((skill, idx) => (
+                                <span key={idx} className="skill-tag">
+                                  {skill}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedRoles.size > 0 && (
+                    <div className="role-actions">
+                      <button
+                        className="add-selected-button"
+                        onClick={addSelectedRoles}
+                      >
+                        Add {selectedRoles.size} Selected Role
+                        {selectedRoles.size > 1 ? "s" : ""}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
