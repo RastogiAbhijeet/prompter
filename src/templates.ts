@@ -1,11 +1,22 @@
+export interface TaskConfig {
+  maxTokens?: number;
+  responseType?: string;
+  format?: string;
+}
+
 export interface Template {
   id: string;
   name: string;
   category: string;
+  roles: Array<{
+    text: string;
+    skills: string[];
+  }>;
   contexts: string[];
   tasks: Array<{
     text: string;
-    subtasks?: string[];
+    subtasks?: Array<string | { text: string; config?: TaskConfig }>;
+    config?: TaskConfig;
   }>;
   guardRails: string[];
 }
@@ -14,8 +25,9 @@ export interface LibraryItem {
   id: string;
   text: string;
   category?: string;
-  subtasks?: string[];
+  subtasks?: Array<string | { text: string; config?: TaskConfig }>;
   skills?: string[];
+  config?: TaskConfig;
 }
 
 export const TEMPLATES: Template[] = [
@@ -23,6 +35,7 @@ export const TEMPLATES: Template[] = [
     id: "feature",
     name: "New Feature",
     category: "Dev",
+    roles: [{ text: "Full-stack Developer", skills: ["React", "Node.js"] }],
     contexts: ["Building a new feature"],
     tasks: [
       {
@@ -36,6 +49,7 @@ export const TEMPLATES: Template[] = [
     id: "bug-fix",
     name: "Bug Fix",
     category: "Dev",
+    roles: [{ text: "Backend Developer", skills: ["Python", "Debugging"] }],
     contexts: ["Fixing a bug"],
     tasks: [
       {
@@ -54,6 +68,7 @@ export const TEMPLATES: Template[] = [
     id: "refactor",
     name: "Refactor",
     category: "Dev",
+    roles: [{ text: "Senior Developer", skills: ["Clean Code", "Testing"] }],
     contexts: ["Improving code quality"],
     tasks: [
       {
@@ -70,6 +85,7 @@ export const TEMPLATES: Template[] = [
     id: "review",
     name: "Code Review",
     category: "Review",
+    roles: [{ text: "Tech Lead", skills: ["Code Review", "Architecture"] }],
     contexts: ["Reviewing code changes"],
     tasks: [
       {
@@ -85,6 +101,7 @@ export const TEMPLATES: Template[] = [
     id: "api",
     name: "API Integration",
     category: "Dev",
+    roles: [{ text: "Backend Developer", skills: ["REST API", "TypeScript"] }],
     contexts: ["Integrating with external API"],
     tasks: [
       {
@@ -103,6 +120,9 @@ export const TEMPLATES: Template[] = [
     id: "docs",
     name: "Documentation",
     category: "Docs",
+    roles: [
+      { text: "Technical Writer", skills: ["Documentation", "Markdown"] },
+    ],
     contexts: ["Writing documentation"],
     tasks: [
       {

@@ -8,17 +8,20 @@ import {
   GUARDRAIL_LIBRARY,
   ROLE_LIBRARY,
   type LibraryItem,
+  type TaskConfig,
 } from "./templates";
 
 interface SubTask {
   id: number;
   text: string;
+  config?: TaskConfig;
 }
 
 interface Task {
   id: number;
   text: string;
   subtasks: SubTask[];
+  config?: TaskConfig;
 }
 
 interface ContextItem {
@@ -31,6 +34,12 @@ interface GuardRail {
   text: string;
 }
 
+interface Role {
+  id: number;
+  text: string;
+  skills: string[];
+}
+
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [nextTaskId, setNextTaskId] = useState(1);
@@ -38,6 +47,8 @@ function App() {
   const [nextContextId, setNextContextId] = useState(1);
   const [guardRails, setGuardRails] = useState<GuardRail[]>([]);
   const [nextGuardRailId, setNextGuardRailId] = useState(1);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [nextRoleId, setNextRoleId] = useState(1);
   const [copySuccess, setCopySuccess] = useState(false);
   const [formatType, setFormatType] = useState<"text" | "xml">("text");
   const [showTemplates, setShowTemplates] = useState(false);
@@ -60,6 +71,12 @@ function App() {
   const [draggedGuardRailIndex, setDraggedGuardRailIndex] = useState<
     number | null
   >(null);
+  const [draggedRoleIndex, setDraggedRoleIndex] = useState<number | null>(null);
+  const [showTaskConfig, setShowTaskConfig] = useState<number | null>(null);
+  const [showSubTaskConfig, setShowSubTaskConfig] = useState<{
+    taskId: number;
+    subtaskId: number;
+  } | null>(null);
 
   const addTask = () => {
     const newTask: Task = {
@@ -80,6 +97,12 @@ function App() {
   const updateTaskText = (taskId: number, text: string) => {
     setTasks(
       tasks.map((task) => (task.id === taskId ? { ...task, text } : task))
+    );
+  };
+
+  const updateTaskConfig = (taskId: number, config: TaskConfig) => {
+    setTasks(
+      tasks.map((task) => (task.id === taskId ? { ...task, config } : task))
     );
   };
 
@@ -139,6 +162,26 @@ function App() {
             ...task,
             subtasks: task.subtasks.map((st) =>
               st.id === subtaskId ? { ...st, text } : st
+            ),
+          };
+        }
+        return task;
+      })
+    );
+  };
+
+  const updateSubTaskConfig = (
+    taskId: number,
+    subtaskId: number,
+    config: TaskConfig
+  ) => {
+    setTasks(
+      tasks.map((task) => {
+        if (task.id === taskId) {
+          return {
+            ...task,
+            subtasks: task.subtasks.map((st) =>
+              st.id === subtaskId ? { ...st, config } : st
             ),
           };
         }
@@ -290,6 +333,55 @@ function App() {
     setDraggedGuardRailIndex(null);
   };
 
+  // Role management functions
+  const addRole = () => {
+    const newRole: Role = {
+      id: nextRoleId,
+      text: "",
+      skills: [],
+    };
+    setRoles([...roles, newRole]);
+    setNextRoleId(nextRoleId + 1);
+  };
+
+  const updateRoleText = (roleId: number, text: string) => {
+    setRoles(
+      roles.map((role) => (role.id === roleId ? { ...role, text } : role))
+    );
+  };
+
+  const updateRoleSkills = (roleId: number, skills: string[]) => {
+    setRoles(
+      roles.map((role) => (role.id === roleId ? { ...role, skills } : role))
+    );
+  };
+
+  const deleteRole = (roleId: number) => {
+    setRoles(roles.filter((role) => role.id !== roleId));
+  };
+
+  // Role drag and drop handlers
+  const handleRoleDragStart = (index: number) => {
+    setDraggedRoleIndex(index);
+  };
+
+  const handleRoleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedRoleIndex === null || draggedRoleIndex === index) return;
+
+    const newRoles = [...roles];
+    const draggedRole = newRoles[draggedRoleIndex];
+    newRoles.splice(draggedRoleIndex, 1);
+    newRoles.splice(index, 0, draggedRole);
+
+    setRoles(newRoles);
+    setDraggedRoleIndex(index);
+  };
+
+  const handleRoleDragEnd = () => {
+    setDraggedRoleIndex(null);
+  };
+
   const generatePrompt = () => {
     if (formatType === "xml") {
       return generateXMLPrompt();
@@ -299,6 +391,20 @@ function App() {
 
   const generateTextPrompt = () => {
     let prompt = "";
+
+    // Add Role section
+    if (roles.length > 0 && roles.some((r) => r.text.trim())) {
+      prompt += "ROLE:\n";
+      roles.forEach((role) => {
+        if (role.text.trim()) {
+          prompt += `${role.text}\n`;
+          if (role.skills && role.skills.length > 0) {
+            prompt += `Skills: ${role.skills.join(", ")}\n`;
+          }
+        }
+      });
+      prompt += "\n";
+    }
 
     // Add Context section
     if (contexts.length > 0 && contexts.some((c) => c.text.trim())) {
@@ -317,9 +423,35 @@ function App() {
       tasks.forEach((task, index) => {
         if (task.text.trim()) {
           prompt += `Task ${index + 1}: ${task.text}\n`;
+          if (task.config) {
+            const configParts = [];
+            if (task.config.maxTokens)
+              configParts.push(`Max Tokens: ${task.config.maxTokens}`);
+            if (task.config.responseType)
+              configParts.push(`Response Type: ${task.config.responseType}`);
+            if (task.config.format)
+              configParts.push(`Format: ${task.config.format}`);
+            if (configParts.length > 0) {
+              prompt += `   [Config: ${configParts.join(", ")}]\n`;
+            }
+          }
           task.subtasks.forEach((subtask) => {
             if (subtask.text.trim()) {
               prompt += `   SubTask: ${subtask.text}\n`;
+              if (subtask.config) {
+                const configParts = [];
+                if (subtask.config.maxTokens)
+                  configParts.push(`Max Tokens: ${subtask.config.maxTokens}`);
+                if (subtask.config.responseType)
+                  configParts.push(
+                    `Response Type: ${subtask.config.responseType}`
+                  );
+                if (subtask.config.format)
+                  configParts.push(`Format: ${subtask.config.format}`);
+                if (configParts.length > 0) {
+                  prompt += `      [Config: ${configParts.join(", ")}]\n`;
+                }
+              }
             }
           });
         }
@@ -343,6 +475,20 @@ function App() {
   const generateXMLPrompt = () => {
     let prompt = "";
 
+    // Add Role section
+    if (roles.length > 0 && roles.some((r) => r.text.trim())) {
+      prompt += "<role>\n";
+      roles.forEach((role) => {
+        if (role.text.trim()) {
+          prompt += `  <title>${role.text}</title>\n`;
+          if (role.skills && role.skills.length > 0) {
+            prompt += `  <skills>${role.skills.join(", ")}</skills>\n`;
+          }
+        }
+      });
+      prompt += "</role>\n\n";
+    }
+
     // Add Context section
     if (contexts.length > 0 && contexts.some((c) => c.text.trim())) {
       prompt += "<context>\n";
@@ -361,6 +507,16 @@ function App() {
         if (task.text.trim()) {
           prompt += `  <task>\n`;
           prompt += `    <description>${task.text}</description>\n`;
+          if (task.config) {
+            prompt += `    <config>\n`;
+            if (task.config.maxTokens)
+              prompt += `      <maxTokens>${task.config.maxTokens}</maxTokens>\n`;
+            if (task.config.responseType)
+              prompt += `      <responseType>${task.config.responseType}</responseType>\n`;
+            if (task.config.format)
+              prompt += `      <format>${task.config.format}</format>\n`;
+            prompt += `    </config>\n`;
+          }
           if (
             task.subtasks.length > 0 &&
             task.subtasks.some((st) => st.text.trim())
@@ -368,7 +524,19 @@ function App() {
             prompt += `    <subtasks>\n`;
             task.subtasks.forEach((subtask) => {
               if (subtask.text.trim()) {
-                prompt += `      <subtask>${subtask.text}</subtask>\n`;
+                prompt += `      <subtask>\n`;
+                prompt += `        <description>${subtask.text}</description>\n`;
+                if (subtask.config) {
+                  prompt += `        <config>\n`;
+                  if (subtask.config.maxTokens)
+                    prompt += `          <maxTokens>${subtask.config.maxTokens}</maxTokens>\n`;
+                  if (subtask.config.responseType)
+                    prompt += `          <responseType>${subtask.config.responseType}</responseType>\n`;
+                  if (subtask.config.format)
+                    prompt += `          <format>${subtask.config.format}</format>\n`;
+                  prompt += `        </config>\n`;
+                }
+                prompt += `      </subtask>\n`;
               }
             });
             prompt += `    </subtasks>\n`;
@@ -405,6 +573,15 @@ function App() {
   };
 
   const loadTemplate = (template: Template) => {
+    // Load roles
+    const newRoles: Role[] = template.roles.map((roleTemplate, index) => ({
+      id: nextRoleId + index,
+      text: roleTemplate.text,
+      skills: roleTemplate.skills,
+    }));
+    setRoles(newRoles);
+    setNextRoleId(nextRoleId + template.roles.length);
+
     // Load contexts
     const newContexts: ContextItem[] = template.contexts.map((text, index) => ({
       id: nextContextId + index,
@@ -419,11 +596,22 @@ function App() {
       const task: Task = {
         id: taskIdCounter++,
         text: taskTemplate.text,
+        config: taskTemplate.config,
         subtasks: taskTemplate.subtasks
-          ? taskTemplate.subtasks.map((subtaskText, index) => ({
-              id: index + 1,
-              text: subtaskText,
-            }))
+          ? taskTemplate.subtasks.map((subtaskItem, index) => {
+              if (typeof subtaskItem === "string") {
+                return {
+                  id: index + 1,
+                  text: subtaskItem,
+                };
+              } else {
+                return {
+                  id: index + 1,
+                  text: subtaskItem.text,
+                  config: subtaskItem.config,
+                };
+              }
+            })
           : [],
       };
       return task;
@@ -450,8 +638,19 @@ function App() {
     const newTask: Task = {
       id: nextTaskId,
       text: item.text,
+      config: item.config,
       subtasks: item.subtasks
-        ? item.subtasks.map((text, index) => ({ id: index + 1, text }))
+        ? item.subtasks.map((subtaskItem, index) => {
+            if (typeof subtaskItem === "string") {
+              return { id: index + 1, text: subtaskItem };
+            } else {
+              return {
+                id: index + 1,
+                text: subtaskItem.text,
+                config: subtaskItem.config,
+              };
+            }
+          })
         : [],
     };
     setTasks([...tasks, newTask]);
@@ -480,24 +679,22 @@ function App() {
   };
 
   const addSelectedRoles = () => {
-    let contextIdCounter = nextContextId;
-    const newContexts: ContextItem[] = [];
+    let roleIdCounter = nextRoleId;
+    const newRoles: Role[] = [];
 
     selectedRoles.forEach((roleId) => {
       const role = ROLE_LIBRARY.find((r) => r.id === roleId);
       if (role) {
-        const skillsText = role.skills
-          ? ` (Skills: ${role.skills.join(", ")})`
-          : "";
-        newContexts.push({
-          id: contextIdCounter++,
-          text: `Role: ${role.text}${skillsText}`,
+        newRoles.push({
+          id: roleIdCounter++,
+          text: role.text,
+          skills: role.skills || [],
         });
       }
     });
 
-    setContexts([...contexts, ...newContexts]);
-    setNextContextId(contextIdCounter);
+    setRoles([...roles, ...newRoles]);
+    setNextRoleId(roleIdCounter);
     setSelectedRoles(new Set());
     setShowLibrary(null);
   };
@@ -583,310 +780,556 @@ function App() {
 
       {/* Keyboard Shortcuts Display */}
       <div className="shortcuts-text">
-        ⌘+Enter: Task | ⌘+\: Context | ⌘+]: Guardrails
+        ⌘+Enter: Task | ⌘+\: Context | ⌘+]: Guardrails | Role library: 👤
       </div>
 
       <div className="sections-container">
-        {/* Section A: Final Prompt Display */}
-        <div className="section prompt-section">
-          <div className="section-header">
-            <h2>Final Prompt</h2>
-            <div className="header-controls">
-              <div className="format-toggle">
+        {/* Column 1: Final Prompt Display */}
+        <div className="column-left">
+          <div className="section prompt-section">
+            <div className="section-header">
+              <h2>Final Prompt</h2>
+              <div className="header-controls">
+                <div className="format-toggle">
+                  <button
+                    className={`toggle-btn ${
+                      formatType === "text" ? "active" : ""
+                    }`}
+                    onClick={() => setFormatType("text")}
+                  >
+                    Text
+                  </button>
+                  <button
+                    className={`toggle-btn ${
+                      formatType === "xml" ? "active" : ""
+                    }`}
+                    onClick={() => setFormatType("xml")}
+                  >
+                    XML
+                  </button>
+                </div>
                 <button
-                  className={`toggle-btn ${
-                    formatType === "text" ? "active" : ""
-                  }`}
-                  onClick={() => setFormatType("text")}
+                  className="copy-button"
+                  onClick={copyToClipboard}
+                  disabled={
+                    tasks.length === 0 &&
+                    contexts.length === 0 &&
+                    guardRails.length === 0 &&
+                    roles.length === 0
+                  }
                 >
-                  Text
-                </button>
-                <button
-                  className={`toggle-btn ${
-                    formatType === "xml" ? "active" : ""
-                  }`}
-                  onClick={() => setFormatType("xml")}
-                >
-                  XML
+                  {copySuccess ? "✓ Copied!" : "Copy Prompt"}
                 </button>
               </div>
-              <button
-                className="copy-button"
-                onClick={copyToClipboard}
-                disabled={
-                  tasks.length === 0 &&
-                  contexts.length === 0 &&
-                  guardRails.length === 0
-                }
-              >
-                {copySuccess ? "✓ Copied!" : "Copy Prompt"}
-              </button>
             </div>
+            <pre className="prompt-display">
+              {generatePrompt() ||
+                "Add a role, context, tasks, or guard-rails to generate a prompt..."}
+            </pre>
           </div>
-          <pre className="prompt-display">
-            {generatePrompt() ||
-              "Add some context, tasks, or guard-rails to generate a prompt..."}
-          </pre>
         </div>
 
-        {/* Section B: Task and SubTask Management */}
-        <div className="section tasks-section">
-          <div className="section-header">
-            <h2>Tasks & SubTasks</h2>
-            <div className="button-group">
-              <button className="add-button" onClick={addTask}>
-                + Add Task
-              </button>
-              <button
-                className="library-button"
-                onClick={() => setShowLibrary("tasks")}
-                title="Pick from library"
-              >
-                📚
-              </button>
+        {/* Column 2: All Input Sections */}
+        <div className="column-right">
+          {/* Section B: Task and SubTask Management */}
+          <div className="section tasks-section">
+            <div className="section-header">
+              <h2>Tasks & SubTasks</h2>
+              <div className="button-group">
+                <button className="add-button" onClick={addTask}>
+                  + Add Task
+                </button>
+                <button
+                  className="library-button"
+                  onClick={() => setShowLibrary("tasks")}
+                  title="Pick from library"
+                >
+                  📚
+                </button>
+              </div>
+            </div>
+
+            <div className="tasks-list">
+              {tasks.map((task, taskIndex) => (
+                <div
+                  key={task.id}
+                  className={`task-item ${
+                    draggedTaskIndex === taskIndex ? "dragging" : ""
+                  }`}
+                  onDragOver={(e) => handleTaskDragOver(e, taskIndex)}
+                >
+                  <div className="task-header">
+                    <span
+                      className="drag-handle"
+                      title="Drag to reorder"
+                      draggable
+                      onDragStart={() => handleTaskDragStart(taskIndex)}
+                      onDragEnd={handleTaskDragEnd}
+                    >
+                      ⋮⋮
+                    </span>
+                    <span className="task-number">Task {taskIndex + 1}</span>
+                    <input
+                      type="text"
+                      className="task-input"
+                      placeholder="Enter task description..."
+                      value={task.text}
+                      onChange={(e) => updateTaskText(task.id, e.target.value)}
+                      ref={(el) => {
+                        taskInputRefs.current[task.id] = el;
+                      }}
+                    />
+                    <button
+                      className={`config-button ${
+                        task.config ? "has-config" : ""
+                      }`}
+                      onClick={() =>
+                        setShowTaskConfig(
+                          showTaskConfig === task.id ? null : task.id
+                        )
+                      }
+                      title="Configure output behavior"
+                    >
+                      ⚙️
+                    </button>
+                    <button
+                      className="add-subtask-button"
+                      onClick={() => addSubTask(task.id)}
+                      title="Add SubTask"
+                    >
+                      +
+                    </button>
+                    <button
+                      className="delete-button"
+                      onClick={() => deleteTask(task.id)}
+                      title="Delete Task"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {showTaskConfig === task.id && (
+                    <div className="config-panel">
+                      <div className="config-row">
+                        <label>Max Tokens:</label>
+                        <input
+                          type="number"
+                          className="config-input"
+                          placeholder="e.g., 500"
+                          value={task.config?.maxTokens || ""}
+                          onChange={(e) =>
+                            updateTaskConfig(task.id, {
+                              ...task.config,
+                              maxTokens: e.target.value
+                                ? parseInt(e.target.value)
+                                : undefined,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="config-row">
+                        <label>Response Type:</label>
+                        <select
+                          className="config-select"
+                          value={task.config?.responseType || ""}
+                          onChange={(e) =>
+                            updateTaskConfig(task.id, {
+                              ...task.config,
+                              responseType: e.target.value || undefined,
+                            })
+                          }
+                          aria-label="Response Type"
+                        >
+                          <option value="">Select...</option>
+                          <option value="code">Code</option>
+                          <option value="explanation">Explanation</option>
+                          <option value="step-by-step">Step-by-step</option>
+                          <option value="detailed">Detailed</option>
+                          <option value="concise">Concise</option>
+                          <option value="bullet-points">Bullet Points</option>
+                        </select>
+                      </div>
+                      <div className="config-row">
+                        <label>Format:</label>
+                        <select
+                          className="config-select"
+                          value={task.config?.format || ""}
+                          onChange={(e) =>
+                            updateTaskConfig(task.id, {
+                              ...task.config,
+                              format: e.target.value || undefined,
+                            })
+                          }
+                          aria-label="Output Format"
+                        >
+                          <option value="">Select...</option>
+                          <option value="markdown">Markdown</option>
+                          <option value="plain">Plain Text</option>
+                          <option value="json">JSON</option>
+                          <option value="xml">XML</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {task.subtasks.length > 0 && (
+                    <div className="subtasks-list">
+                      {task.subtasks.map((subtask, subtaskIndex) => (
+                        <div
+                          key={subtask.id}
+                          className={`subtask-item ${
+                            draggedSubTask?.taskId === task.id &&
+                            draggedSubTask?.index === subtaskIndex
+                              ? "dragging"
+                              : ""
+                          }`}
+                          onDragOver={(e) =>
+                            handleSubTaskDragOver(e, task.id, subtaskIndex)
+                          }
+                        >
+                          <div className="subtask-header">
+                            <span
+                              className="drag-handle small"
+                              title="Drag to reorder"
+                              draggable
+                              onDragStart={() =>
+                                handleSubTaskDragStart(task.id, subtaskIndex)
+                              }
+                              onDragEnd={handleSubTaskDragEnd}
+                            >
+                              ⋮⋮
+                            </span>
+                            <span className="subtask-label">SubTask:</span>
+                            <input
+                              type="text"
+                              className="subtask-input"
+                              placeholder="Enter subtask description..."
+                              value={subtask.text}
+                              onChange={(e) =>
+                                updateSubTaskText(
+                                  task.id,
+                                  subtask.id,
+                                  e.target.value
+                                )
+                              }
+                            />
+                            <button
+                              className={`config-button small ${
+                                subtask.config ? "has-config" : ""
+                              }`}
+                              onClick={() =>
+                                setShowSubTaskConfig(
+                                  showSubTaskConfig?.taskId === task.id &&
+                                    showSubTaskConfig?.subtaskId === subtask.id
+                                    ? null
+                                    : { taskId: task.id, subtaskId: subtask.id }
+                                )
+                              }
+                              title="Configure output behavior"
+                            >
+                              ⚙️
+                            </button>
+                            <button
+                              className="delete-button small"
+                              onClick={() => deleteSubTask(task.id, subtask.id)}
+                              title="Delete SubTask"
+                            >
+                              ×
+                            </button>
+                          </div>
+
+                          {showSubTaskConfig?.taskId === task.id &&
+                            showSubTaskConfig?.subtaskId === subtask.id && (
+                              <div className="config-panel subtask-config">
+                                <div className="config-row">
+                                  <label>Max Tokens:</label>
+                                  <input
+                                    type="number"
+                                    className="config-input"
+                                    placeholder="e.g., 500"
+                                    value={subtask.config?.maxTokens || ""}
+                                    onChange={(e) =>
+                                      updateSubTaskConfig(task.id, subtask.id, {
+                                        ...subtask.config,
+                                        maxTokens: e.target.value
+                                          ? parseInt(e.target.value)
+                                          : undefined,
+                                      })
+                                    }
+                                  />
+                                </div>
+                                <div className="config-row">
+                                  <label>Response Type:</label>
+                                  <select
+                                    className="config-select"
+                                    value={subtask.config?.responseType || ""}
+                                    onChange={(e) =>
+                                      updateSubTaskConfig(task.id, subtask.id, {
+                                        ...subtask.config,
+                                        responseType:
+                                          e.target.value || undefined,
+                                      })
+                                    }
+                                    aria-label="Response Type"
+                                  >
+                                    <option value="">Select...</option>
+                                    <option value="code">Code</option>
+                                    <option value="explanation">
+                                      Explanation
+                                    </option>
+                                    <option value="step-by-step">
+                                      Step-by-step
+                                    </option>
+                                    <option value="detailed">Detailed</option>
+                                    <option value="concise">Concise</option>
+                                    <option value="bullet-points">
+                                      Bullet Points
+                                    </option>
+                                  </select>
+                                </div>
+                                <div className="config-row">
+                                  <label>Format:</label>
+                                  <select
+                                    className="config-select"
+                                    value={subtask.config?.format || ""}
+                                    onChange={(e) =>
+                                      updateSubTaskConfig(task.id, subtask.id, {
+                                        ...subtask.config,
+                                        format: e.target.value || undefined,
+                                      })
+                                    }
+                                    aria-label="Output Format"
+                                  >
+                                    <option value="">Select...</option>
+                                    <option value="markdown">Markdown</option>
+                                    <option value="plain">Plain Text</option>
+                                    <option value="json">JSON</option>
+                                    <option value="xml">XML</option>
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {tasks.length === 0 && (
+                <div className="empty-state">
+                  Click "+ Add Task" to get started
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="tasks-list">
-            {tasks.map((task, taskIndex) => (
-              <div
-                key={task.id}
-                className={`task-item ${
-                  draggedTaskIndex === taskIndex ? "dragging" : ""
-                }`}
-                onDragOver={(e) => handleTaskDragOver(e, taskIndex)}
-              >
-                <div className="task-header">
+          {/* Section C: Role Management */}
+          <div className="section role-section">
+            <div className="section-header">
+              <h2>Role</h2>
+              <div className="button-group">
+                <button className="add-button" onClick={addRole}>
+                  + Add Role
+                </button>
+                <button
+                  className="library-button"
+                  onClick={() => setShowLibrary("roles")}
+                  title="Pick from library"
+                >
+                  👤
+                </button>
+              </div>
+            </div>
+
+            <div className="roles-list">
+              {roles.map((role, roleIndex) => (
+                <div
+                  key={role.id}
+                  className={`role-item-container ${
+                    draggedRoleIndex === roleIndex ? "dragging" : ""
+                  }`}
+                  onDragOver={(e) => handleRoleDragOver(e, roleIndex)}
+                >
+                  <div className="role-header">
+                    <span
+                      className="drag-handle"
+                      title="Drag to reorder"
+                      draggable
+                      onDragStart={() => handleRoleDragStart(roleIndex)}
+                      onDragEnd={handleRoleDragEnd}
+                    >
+                      ⋮⋮
+                    </span>
+                    <input
+                      type="text"
+                      className="role-input"
+                      placeholder="Enter role title..."
+                      value={role.text}
+                      onChange={(e) => updateRoleText(role.id, e.target.value)}
+                    />
+                    <button
+                      className="delete-button"
+                      onClick={() => deleteRole(role.id)}
+                      title="Delete Role"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="role-skills">
+                    <input
+                      type="text"
+                      className="skills-input"
+                      placeholder="Skills (comma-separated)..."
+                      value={role.skills.join(", ")}
+                      onChange={(e) =>
+                        updateRoleSkills(
+                          role.id,
+                          e.target.value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter((s) => s)
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              ))}
+
+              {roles.length === 0 && (
+                <div className="empty-state">
+                  Click "+ Add Role" or 👤 to pick from library
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section D: Context Management */}
+          <div className="section context-section">
+            <div className="section-header">
+              <h2>Context</h2>
+              <div className="button-group">
+                <button className="add-button" onClick={addContext}>
+                  + Add Context
+                </button>
+                <button
+                  className="library-button"
+                  onClick={() => setShowLibrary("contexts")}
+                  title="Pick from library"
+                >
+                  📚
+                </button>
+              </div>
+            </div>
+
+            <div className="items-list">
+              {contexts.map((context, contextIndex) => (
+                <div
+                  key={context.id}
+                  className={`item ${
+                    draggedContextIndex === contextIndex ? "dragging" : ""
+                  }`}
+                  onDragOver={(e) => handleContextDragOver(e, contextIndex)}
+                >
                   <span
                     className="drag-handle"
                     title="Drag to reorder"
                     draggable
-                    onDragStart={() => handleTaskDragStart(taskIndex)}
-                    onDragEnd={handleTaskDragEnd}
+                    onDragStart={() => handleContextDragStart(contextIndex)}
+                    onDragEnd={handleContextDragEnd}
                   >
                     ⋮⋮
                   </span>
-                  <span className="task-number">Task {taskIndex + 1}</span>
+                  <span className="item-number">{contextIndex + 1}.</span>
                   <input
                     type="text"
-                    className="task-input"
-                    placeholder="Enter task description..."
-                    value={task.text}
-                    onChange={(e) => updateTaskText(task.id, e.target.value)}
-                    ref={(el) => {
-                      taskInputRefs.current[task.id] = el;
-                    }}
+                    className="item-input"
+                    placeholder="Enter context information..."
+                    value={context.text}
+                    onChange={(e) =>
+                      updateContextText(context.id, e.target.value)
+                    }
                   />
                   <button
-                    className="add-subtask-button"
-                    onClick={() => addSubTask(task.id)}
-                    title="Add SubTask"
-                  >
-                    +
-                  </button>
-                  <button
                     className="delete-button"
-                    onClick={() => deleteTask(task.id)}
-                    title="Delete Task"
+                    onClick={() => deleteContext(context.id)}
+                    title="Delete Context"
                   >
                     ×
                   </button>
                 </div>
+              ))}
 
-                {task.subtasks.length > 0 && (
-                  <div className="subtasks-list">
-                    {task.subtasks.map((subtask, subtaskIndex) => (
-                      <div
-                        key={subtask.id}
-                        className={`subtask-item ${
-                          draggedSubTask?.taskId === task.id &&
-                          draggedSubTask?.index === subtaskIndex
-                            ? "dragging"
-                            : ""
-                        }`}
-                        onDragOver={(e) =>
-                          handleSubTaskDragOver(e, task.id, subtaskIndex)
-                        }
-                      >
-                        <span
-                          className="drag-handle small"
-                          title="Drag to reorder"
-                          draggable
-                          onDragStart={() =>
-                            handleSubTaskDragStart(task.id, subtaskIndex)
-                          }
-                          onDragEnd={handleSubTaskDragEnd}
-                        >
-                          ⋮⋮
-                        </span>
-                        <span className="subtask-label">SubTask:</span>
-                        <input
-                          type="text"
-                          className="subtask-input"
-                          placeholder="Enter subtask description..."
-                          value={subtask.text}
-                          onChange={(e) =>
-                            updateSubTaskText(
-                              task.id,
-                              subtask.id,
-                              e.target.value
-                            )
-                          }
-                        />
-                        <button
-                          className="delete-button small"
-                          onClick={() => deleteSubTask(task.id, subtask.id)}
-                          title="Delete SubTask"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {tasks.length === 0 && (
-              <div className="empty-state">
-                Click "+ Add Task" to get started
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Section C: Context Management */}
-        <div className="section context-section">
-          <div className="section-header">
-            <h2>Context</h2>
-            <div className="button-group">
-              <button className="add-button" onClick={addContext}>
-                + Add Context
-              </button>
-              <button
-                className="library-button"
-                onClick={() => setShowLibrary("contexts")}
-                title="Pick from library"
-              >
-                📚
-              </button>
-              <button
-                className="role-button"
-                onClick={() => setShowLibrary("roles")}
-                title="Add role"
-              >
-                👤
-              </button>
+              {contexts.length === 0 && (
+                <div className="empty-state">
+                  Click "+ Add Context" to get started
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="items-list">
-            {contexts.map((context, contextIndex) => (
-              <div
-                key={context.id}
-                className={`item ${
-                  draggedContextIndex === contextIndex ? "dragging" : ""
-                }`}
-                onDragOver={(e) => handleContextDragOver(e, contextIndex)}
-              >
-                <span
-                  className="drag-handle"
-                  title="Drag to reorder"
-                  draggable
-                  onDragStart={() => handleContextDragStart(contextIndex)}
-                  onDragEnd={handleContextDragEnd}
-                >
-                  ⋮⋮
-                </span>
-                <span className="item-number">{contextIndex + 1}.</span>
-                <input
-                  type="text"
-                  className="item-input"
-                  placeholder="Enter context information..."
-                  value={context.text}
-                  onChange={(e) =>
-                    updateContextText(context.id, e.target.value)
-                  }
-                />
+          {/* Section E: Guard-rails Management */}
+          <div className="section guardrails-section">
+            <div className="section-header">
+              <h2>Guard-rails</h2>
+              <div className="button-group">
+                <button className="add-button" onClick={addGuardRail}>
+                  + Add Guard-rail
+                </button>
                 <button
-                  className="delete-button"
-                  onClick={() => deleteContext(context.id)}
-                  title="Delete Context"
+                  className="library-button"
+                  onClick={() => setShowLibrary("guardrails")}
+                  title="Pick from library"
                 >
-                  ×
+                  📚
                 </button>
               </div>
-            ))}
-
-            {contexts.length === 0 && (
-              <div className="empty-state">
-                Click "+ Add Context" to get started
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Section D: Guard-rails Management */}
-        <div className="section guardrails-section">
-          <div className="section-header">
-            <h2>Guard-rails</h2>
-            <div className="button-group">
-              <button className="add-button" onClick={addGuardRail}>
-                + Add Guard-rail
-              </button>
-              <button
-                className="library-button"
-                onClick={() => setShowLibrary("guardrails")}
-                title="Pick from library"
-              >
-                📚
-              </button>
             </div>
-          </div>
 
-          <div className="items-list">
-            {guardRails.map((guardRail, guardRailIndex) => (
-              <div
-                key={guardRail.id}
-                className={`item ${
-                  draggedGuardRailIndex === guardRailIndex ? "dragging" : ""
-                }`}
-                onDragOver={(e) => handleGuardRailDragOver(e, guardRailIndex)}
-              >
-                <span
-                  className="drag-handle"
-                  title="Drag to reorder"
-                  draggable
-                  onDragStart={() => handleGuardRailDragStart(guardRailIndex)}
-                  onDragEnd={handleGuardRailDragEnd}
+            <div className="items-list">
+              {guardRails.map((guardRail, guardRailIndex) => (
+                <div
+                  key={guardRail.id}
+                  className={`item ${
+                    draggedGuardRailIndex === guardRailIndex ? "dragging" : ""
+                  }`}
+                  onDragOver={(e) => handleGuardRailDragOver(e, guardRailIndex)}
                 >
-                  ⋮⋮
-                </span>
-                <span className="item-number">{guardRailIndex + 1}.</span>
-                <input
-                  type="text"
-                  className="item-input"
-                  placeholder="Enter guard-rail..."
-                  value={guardRail.text}
-                  onChange={(e) =>
-                    updateGuardRailText(guardRail.id, e.target.value)
-                  }
-                />
-                <button
-                  className="delete-button"
-                  onClick={() => deleteGuardRail(guardRail.id)}
-                  title="Delete Guard-rail"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
+                  <span
+                    className="drag-handle"
+                    title="Drag to reorder"
+                    draggable
+                    onDragStart={() => handleGuardRailDragStart(guardRailIndex)}
+                    onDragEnd={handleGuardRailDragEnd}
+                  >
+                    ⋮⋮
+                  </span>
+                  <span className="item-number">{guardRailIndex + 1}.</span>
+                  <input
+                    type="text"
+                    className="item-input"
+                    placeholder="Enter guard-rail..."
+                    value={guardRail.text}
+                    onChange={(e) =>
+                      updateGuardRailText(guardRail.id, e.target.value)
+                    }
+                  />
+                  <button
+                    className="delete-button"
+                    onClick={() => deleteGuardRail(guardRail.id)}
+                    title="Delete Guard-rail"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
 
-            {guardRails.length === 0 && (
-              <div className="empty-state">
-                Click "+ Add Guard-rail" to get started
-              </div>
-            )}
+              {guardRails.length === 0 && (
+                <div className="empty-state">
+                  Click "+ Add Guard-rail" to get started
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
