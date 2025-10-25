@@ -10,6 +10,7 @@ import {
   type LibraryItem,
   type TaskConfig,
 } from "./templates";
+import { promptDB, generatePromptId, type StoredPrompt } from "./db";
 
 interface SubTask {
   id: number;
@@ -59,6 +60,17 @@ function App() {
   const [activeRoleCategory, setActiveRoleCategory] =
     useState<string>("Frontend");
   const taskInputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({});
+
+  // New state for prompt history
+  const [promptTitle, setPromptTitle] = useState("");
+  const [currentPromptId, setCurrentPromptId] = useState<string | null>(null);
+  const [historicalPrompts, setHistoricalPrompts] = useState<StoredPrompt[]>(
+    []
+  );
+  const [selectedPromptIds, setSelectedPromptIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const [draggedTaskIndex, setDraggedTaskIndex] = useState<number | null>(null);
   const [draggedSubTask, setDraggedSubTask] = useState<{
@@ -709,6 +721,149 @@ function App() {
     setShowLibrary(null);
   };
 
+  // Save current prompt to IndexedDB
+  const savePrompt = async () => {
+    try {
+      const promptId = currentPromptId || generatePromptId();
+      const prompt: StoredPrompt = {
+        id: promptId,
+        title:
+          promptTitle || `Untitled Prompt ${new Date().toLocaleDateString()}`,
+        timestamp: Date.now(),
+        roles,
+        contexts,
+        tasks,
+        guardRails,
+      };
+
+      await promptDB.savePrompt(prompt);
+      setCurrentPromptId(promptId);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+
+      // Refresh historical prompts list
+      loadHistoricalPrompts();
+    } catch (err) {
+      console.error("Failed to save prompt:", err);
+      alert("Failed to save prompt. Please try again.");
+    }
+  };
+
+  // Load historical prompts from IndexedDB
+  const loadHistoricalPrompts = async () => {
+    try {
+      const prompts = await promptDB.getAllPrompts();
+      setHistoricalPrompts(prompts);
+    } catch (err) {
+      console.error("Failed to load prompts:", err);
+    }
+  };
+
+  // Load a specific prompt
+  const loadPrompt = (prompt: StoredPrompt) => {
+    setPromptTitle(prompt.title);
+    setCurrentPromptId(prompt.id);
+    setRoles(prompt.roles);
+    setContexts(prompt.contexts);
+    setTasks(prompt.tasks);
+    setGuardRails(prompt.guardRails);
+
+    // Update next IDs to prevent conflicts
+    setNextRoleId(Math.max(...prompt.roles.map((r) => r.id), 0) + 1);
+    setNextContextId(Math.max(...prompt.contexts.map((c) => c.id), 0) + 1);
+    setNextTaskId(Math.max(...prompt.tasks.map((t) => t.id), 0) + 1);
+    setNextGuardRailId(Math.max(...prompt.guardRails.map((g) => g.id), 0) + 1);
+  };
+
+  // Delete selected prompts
+  const deleteSelectedPrompts = async () => {
+    if (selectedPromptIds.size === 0) return;
+
+    if (
+      !confirm(
+        `Are you sure you want to delete ${selectedPromptIds.size} prompt(s)?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await promptDB.deletePrompts(Array.from(selectedPromptIds));
+      setSelectedPromptIds(new Set());
+      loadHistoricalPrompts();
+    } catch (err) {
+      console.error("Failed to delete prompts:", err);
+      alert("Failed to delete prompts. Please try again.");
+    }
+  };
+
+  // Toggle prompt selection
+  const togglePromptSelection = (id: string) => {
+    const newSelected = new Set(selectedPromptIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedPromptIds(newSelected);
+  };
+
+  // Clear current prompt to start fresh
+  const clearPrompt = () => {
+    if (
+      tasks.length > 0 ||
+      contexts.length > 0 ||
+      guardRails.length > 0 ||
+      roles.length > 0
+    ) {
+      if (!confirm("Are you sure you want to clear the current prompt?")) {
+        return;
+      }
+    }
+
+    setPromptTitle("");
+    setCurrentPromptId(null);
+    setTasks([]);
+    setContexts([]);
+    setGuardRails([]);
+    setRoles([]);
+    setNextTaskId(1);
+    setNextContextId(1);
+    setNextGuardRailId(1);
+    setNextRoleId(1);
+  };
+
+  // Start a new prompt
+  const newPrompt = () => {
+    if (
+      tasks.length > 0 ||
+      contexts.length > 0 ||
+      guardRails.length > 0 ||
+      roles.length > 0 ||
+      promptTitle.trim()
+    ) {
+      if (
+        !confirm(
+          "Start a new prompt? Current changes will be lost if not saved."
+        )
+      ) {
+        return;
+      }
+    }
+
+    setPromptTitle("");
+    setCurrentPromptId(null);
+    setTasks([]);
+    setContexts([]);
+    setGuardRails([]);
+    setRoles([]);
+    setNextTaskId(1);
+    setNextContextId(1);
+    setNextGuardRailId(1);
+    setNextRoleId(1);
+    setSelectedPromptIds(new Set());
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -750,585 +905,752 @@ function App() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showTemplates]);
 
+  // Load historical prompts on mount
+  useEffect(() => {
+    loadHistoricalPrompts();
+  }, []);
+
   return (
     <div className="app-container">
       <div className="header-row">
         <h1>Prompt Generator</h1>
-        <div className="templates-dropdown-container">
-          <button
-            className="templates-button"
-            onClick={() => setShowTemplates(!showTemplates)}
-          >
-            📋 Load Template
-          </button>
-          {showTemplates && (
-            <div className="templates-dropdown">
-              {TEMPLATES.map((template) => (
-                <button
-                  key={template.id}
-                  className="template-item"
-                  onClick={() => loadTemplate(template)}
-                >
-                  <div className="template-name">{template.name}</div>
-                  <div className="template-category">{template.category}</div>
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="header-controls">
+          <div className="templates-dropdown-container">
+            <button
+              className="templates-button"
+              onClick={() => setShowTemplates(!showTemplates)}
+            >
+              📋 Load Template
+            </button>
+            {showTemplates && (
+              <div className="templates-dropdown">
+                {TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    className="template-item"
+                    onClick={() => loadTemplate(template)}
+                  >
+                    <div className="template-name">{template.name}</div>
+                    <div className="template-category">{template.category}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Keyboard Shortcuts Display */}
-      <div className="shortcuts-text">
-        ⌘+Enter: Task | ⌘+\: Context | ⌘+]: Guardrails | Role library: 👤
-      </div>
-
-      <div className="sections-container">
-        {/* Column 1: Final Prompt Display */}
-        <div className="column-left">
-          <div className="section prompt-section">
+      {/* Main Layout with Sidebar */}
+      <div className="main-layout">
+        {/* History Sidebar */}
+        <div className="sidebar-history">
+          <div className="section history-section">
             <div className="section-header">
-              <h2>Final Prompt</h2>
-              <div className="header-controls">
-                <div className="format-toggle">
-                  <button
-                    className={`toggle-btn ${
-                      formatType === "text" ? "active" : ""
-                    }`}
-                    onClick={() => setFormatType("text")}
-                  >
-                    Text
-                  </button>
-                  <button
-                    className={`toggle-btn ${
-                      formatType === "xml" ? "active" : ""
-                    }`}
-                    onClick={() => setFormatType("xml")}
-                  >
-                    XML
-                  </button>
-                </div>
+              <h2>📚 History ({historicalPrompts.length})</h2>
+              <button
+                className="new-prompt-button"
+                onClick={newPrompt}
+                title="Start a new prompt"
+              >
+                ✨ New
+              </button>
+            </div>
+            {selectedPromptIds.size > 0 && (
+              <div className="history-actions">
                 <button
-                  className="copy-button"
-                  onClick={copyToClipboard}
-                  disabled={
-                    tasks.length === 0 &&
-                    contexts.length === 0 &&
-                    guardRails.length === 0 &&
-                    roles.length === 0
-                  }
+                  className="delete-selected-button-inline"
+                  onClick={deleteSelectedPrompts}
+                  title="Delete selected prompts"
                 >
-                  {copySuccess ? "✓ Copied!" : "Copy Prompt"}
+                  🗑️ Delete ({selectedPromptIds.size})
                 </button>
               </div>
+            )}
+            <div className="history-list">
+              {historicalPrompts.length === 0 ? (
+                <div className="empty-history-inline">
+                  <p>No saved prompts yet.</p>
+                  <p>Save your first prompt!</p>
+                </div>
+              ) : (
+                historicalPrompts.map((prompt) => (
+                  <div
+                    key={prompt.id}
+                    className={`history-item-inline ${
+                      selectedPromptIds.has(prompt.id) ? "selected" : ""
+                    } ${currentPromptId === prompt.id ? "active" : ""}`}
+                  >
+                    <div className="history-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={selectedPromptIds.has(prompt.id)}
+                        onChange={() => togglePromptSelection(prompt.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Select ${prompt.title}`}
+                      />
+                    </div>
+                    <div
+                      className="history-content-inline"
+                      onClick={() => loadPrompt(prompt)}
+                    >
+                      <div className="history-title-inline">{prompt.title}</div>
+                      <div className="history-date-inline">
+                        {new Date(prompt.timestamp).toLocaleDateString()}
+                      </div>
+                      <div className="history-stats-inline">
+                        {prompt.roles.length > 0 && (
+                          <span>👤 {prompt.roles.length}</span>
+                        )}
+                        {prompt.contexts.length > 0 && (
+                          <span>📝 {prompt.contexts.length}</span>
+                        )}
+                        {prompt.tasks.length > 0 && (
+                          <span>✅ {prompt.tasks.length}</span>
+                        )}
+                        {prompt.guardRails.length > 0 && (
+                          <span>🛡️ {prompt.guardRails.length}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
-            <pre className="prompt-display">
-              {generatePrompt() ||
-                "Add a role, context, tasks, or guard-rails to generate a prompt..."}
-            </pre>
           </div>
         </div>
 
-        {/* Column 2: All Input Sections */}
-        <div className="column-right">
-          {/* Section B: Task and SubTask Management */}
-          <div className="section tasks-section">
-            <div className="section-header">
-              <h2>Tasks & SubTasks</h2>
-              <div className="button-group">
-                <button className="add-button" onClick={addTask}>
-                  + Add Task
-                </button>
-                <button
-                  className="library-button"
-                  onClick={() => setShowLibrary("tasks")}
-                  title="Pick from library"
-                >
-                  📚
-                </button>
+        {/* Main Content Area */}
+        <div className="main-content">
+          {/* Prompt Title and Actions */}
+          <div className="prompt-title-section">
+            <input
+              type="text"
+              className="prompt-title-input"
+              placeholder="Enter prompt title..."
+              value={promptTitle}
+              onChange={(e) => setPromptTitle(e.target.value)}
+            />
+            <div className="prompt-actions">
+              <button
+                className="save-button"
+                onClick={savePrompt}
+                disabled={
+                  tasks.length === 0 &&
+                  contexts.length === 0 &&
+                  guardRails.length === 0 &&
+                  roles.length === 0
+                }
+              >
+                {saveSuccess
+                  ? "✓ Saved!"
+                  : currentPromptId
+                  ? "💾 Update"
+                  : "💾 Save"}
+              </button>
+              <button className="clear-button" onClick={clearPrompt}>
+                🗑️ Clear
+              </button>
+            </div>
+          </div>
+
+          {/* Keyboard Shortcuts Display */}
+          <div className="shortcuts-text">
+            ⌘+Enter: Task | ⌘+\: Context | ⌘+]: Guardrails | Role library: 👤
+          </div>
+
+          {/* Two Column Layout: Prompt | Controllers */}
+          <div className="content-columns">
+            {/* Left: Final Prompt Display */}
+            <div className="column-prompt">
+              <div className="section prompt-section">
+                <div className="section-header">
+                  <h2>Final Prompt</h2>
+                  <div className="header-controls">
+                    <div className="format-toggle">
+                      <button
+                        className={`toggle-btn ${
+                          formatType === "text" ? "active" : ""
+                        }`}
+                        onClick={() => setFormatType("text")}
+                      >
+                        Text
+                      </button>
+                      <button
+                        className={`toggle-btn ${
+                          formatType === "xml" ? "active" : ""
+                        }`}
+                        onClick={() => setFormatType("xml")}
+                      >
+                        XML
+                      </button>
+                    </div>
+                    <button
+                      className="copy-button"
+                      onClick={copyToClipboard}
+                      disabled={
+                        tasks.length === 0 &&
+                        contexts.length === 0 &&
+                        guardRails.length === 0 &&
+                        roles.length === 0
+                      }
+                    >
+                      {copySuccess ? "✓ Copied!" : "Copy Prompt"}
+                    </button>
+                  </div>
+                </div>
+                <pre className="prompt-display">
+                  {generatePrompt() ||
+                    "Add a role, context, tasks, or guard-rails to generate a prompt..."}
+                </pre>
               </div>
             </div>
 
-            <div className="tasks-list">
-              {tasks.map((task, taskIndex) => (
-                <div
-                  key={task.id}
-                  className={`task-item ${
-                    draggedTaskIndex === taskIndex ? "dragging" : ""
-                  }`}
-                  onDragOver={(e) => handleTaskDragOver(e, taskIndex)}
-                >
-                  <div className="task-header">
-                    <span
-                      className="drag-handle"
-                      title="Drag to reorder"
-                      draggable
-                      onDragStart={() => handleTaskDragStart(taskIndex)}
-                      onDragEnd={handleTaskDragEnd}
-                    >
-                      ⋮⋮
-                    </span>
-                    <span className="task-number">Task {taskIndex + 1}</span>
-                    <input
-                      type="text"
-                      className="task-input"
-                      placeholder="Enter task description..."
-                      value={task.text}
-                      onChange={(e) => updateTaskText(task.id, e.target.value)}
-                      ref={(el) => {
-                        taskInputRefs.current[task.id] = el;
-                      }}
-                    />
-                    <button
-                      className={`config-button ${
-                        task.config ? "has-config" : ""
-                      }`}
-                      onClick={() =>
-                        setShowTaskConfig(
-                          showTaskConfig === task.id ? null : task.id
-                        )
-                      }
-                      title="Configure output behavior"
-                    >
-                      ⚙️
+            {/* Right: All Input Sections */}
+            <div className="column-controls">
+              {/* Section B: Task and SubTask Management */}
+              <div className="section tasks-section">
+                <div className="section-header">
+                  <h2>Tasks & SubTasks</h2>
+                  <div className="button-group">
+                    <button className="add-button" onClick={addTask}>
+                      + Add Task
                     </button>
                     <button
-                      className="add-subtask-button"
-                      onClick={() => addSubTask(task.id)}
-                      title="Add SubTask"
+                      className="library-button"
+                      onClick={() => setShowLibrary("tasks")}
+                      title="Pick from library"
                     >
-                      +
-                    </button>
-                    <button
-                      className="delete-button"
-                      onClick={() => deleteTask(task.id)}
-                      title="Delete Task"
-                    >
-                      ×
+                      📚
                     </button>
                   </div>
+                </div>
 
-                  {showTaskConfig === task.id && (
-                    <div className="config-panel">
-                      <div className="config-row">
-                        <label>Max Tokens:</label>
+                <div className="tasks-list">
+                  {tasks.map((task, taskIndex) => (
+                    <div
+                      key={task.id}
+                      className={`task-item ${
+                        draggedTaskIndex === taskIndex ? "dragging" : ""
+                      }`}
+                      onDragOver={(e) => handleTaskDragOver(e, taskIndex)}
+                    >
+                      <div className="task-header">
+                        <span
+                          className="drag-handle"
+                          title="Drag to reorder"
+                          draggable
+                          onDragStart={() => handleTaskDragStart(taskIndex)}
+                          onDragEnd={handleTaskDragEnd}
+                        >
+                          ⋮⋮
+                        </span>
+                        <span className="task-number">
+                          Task {taskIndex + 1}
+                        </span>
                         <input
-                          type="number"
-                          className="config-input"
-                          placeholder="e.g., 500"
-                          value={task.config?.maxTokens || ""}
+                          type="text"
+                          className="task-input"
+                          placeholder="Enter task description..."
+                          value={task.text}
                           onChange={(e) =>
-                            updateTaskConfig(task.id, {
-                              ...task.config,
-                              maxTokens: e.target.value
-                                ? parseInt(e.target.value)
-                                : undefined,
-                            })
+                            updateTaskText(task.id, e.target.value)
+                          }
+                          ref={(el) => {
+                            taskInputRefs.current[task.id] = el;
+                          }}
+                        />
+                        <button
+                          className={`config-button ${
+                            task.config ? "has-config" : ""
+                          }`}
+                          onClick={() =>
+                            setShowTaskConfig(
+                              showTaskConfig === task.id ? null : task.id
+                            )
+                          }
+                          title="Configure output behavior"
+                        >
+                          ⚙️
+                        </button>
+                        <button
+                          className="add-subtask-button"
+                          onClick={() => addSubTask(task.id)}
+                          title="Add SubTask"
+                        >
+                          +
+                        </button>
+                        <button
+                          className="delete-button"
+                          onClick={() => deleteTask(task.id)}
+                          title="Delete Task"
+                        >
+                          ×
+                        </button>
+                      </div>
+
+                      {showTaskConfig === task.id && (
+                        <div className="config-panel">
+                          <div className="config-row">
+                            <label>Max Tokens:</label>
+                            <input
+                              type="number"
+                              className="config-input"
+                              placeholder="e.g., 500"
+                              value={task.config?.maxTokens || ""}
+                              onChange={(e) =>
+                                updateTaskConfig(task.id, {
+                                  ...task.config,
+                                  maxTokens: e.target.value
+                                    ? parseInt(e.target.value)
+                                    : undefined,
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="config-row">
+                            <label>Response Type:</label>
+                            <select
+                              className="config-select"
+                              value={task.config?.responseType || ""}
+                              onChange={(e) =>
+                                updateTaskConfig(task.id, {
+                                  ...task.config,
+                                  responseType: e.target.value || undefined,
+                                })
+                              }
+                              aria-label="Response Type"
+                            >
+                              <option value="">Select...</option>
+                              <option value="code">Code</option>
+                              <option value="explanation">Explanation</option>
+                              <option value="step-by-step">Step-by-step</option>
+                              <option value="detailed">Detailed</option>
+                              <option value="concise">Concise</option>
+                              <option value="bullet-points">
+                                Bullet Points
+                              </option>
+                            </select>
+                          </div>
+                          <div className="config-row">
+                            <label>Format:</label>
+                            <select
+                              className="config-select"
+                              value={task.config?.format || ""}
+                              onChange={(e) =>
+                                updateTaskConfig(task.id, {
+                                  ...task.config,
+                                  format: e.target.value || undefined,
+                                })
+                              }
+                              aria-label="Output Format"
+                            >
+                              <option value="">Select...</option>
+                              <option value="markdown">Markdown</option>
+                              <option value="plain">Plain Text</option>
+                              <option value="json">JSON</option>
+                              <option value="xml">XML</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
+                      {task.subtasks.length > 0 && (
+                        <div className="subtasks-list">
+                          {task.subtasks.map((subtask, subtaskIndex) => (
+                            <div
+                              key={subtask.id}
+                              className={`subtask-item ${
+                                draggedSubTask?.taskId === task.id &&
+                                draggedSubTask?.index === subtaskIndex
+                                  ? "dragging"
+                                  : ""
+                              }`}
+                              onDragOver={(e) =>
+                                handleSubTaskDragOver(e, task.id, subtaskIndex)
+                              }
+                            >
+                              <div className="subtask-header">
+                                <span
+                                  className="drag-handle small"
+                                  title="Drag to reorder"
+                                  draggable
+                                  onDragStart={() =>
+                                    handleSubTaskDragStart(
+                                      task.id,
+                                      subtaskIndex
+                                    )
+                                  }
+                                  onDragEnd={handleSubTaskDragEnd}
+                                >
+                                  ⋮⋮
+                                </span>
+                                <span className="subtask-label">SubTask:</span>
+                                <input
+                                  type="text"
+                                  className="subtask-input"
+                                  placeholder="Enter subtask description..."
+                                  value={subtask.text}
+                                  onChange={(e) =>
+                                    updateSubTaskText(
+                                      task.id,
+                                      subtask.id,
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                                <button
+                                  className={`config-button small ${
+                                    subtask.config ? "has-config" : ""
+                                  }`}
+                                  onClick={() =>
+                                    setShowSubTaskConfig(
+                                      showSubTaskConfig?.taskId === task.id &&
+                                        showSubTaskConfig?.subtaskId ===
+                                          subtask.id
+                                        ? null
+                                        : {
+                                            taskId: task.id,
+                                            subtaskId: subtask.id,
+                                          }
+                                    )
+                                  }
+                                  title="Configure output behavior"
+                                >
+                                  ⚙️
+                                </button>
+                                <button
+                                  className="delete-button small"
+                                  onClick={() =>
+                                    deleteSubTask(task.id, subtask.id)
+                                  }
+                                  title="Delete SubTask"
+                                >
+                                  ×
+                                </button>
+                              </div>
+
+                              {showSubTaskConfig?.taskId === task.id &&
+                                showSubTaskConfig?.subtaskId === subtask.id && (
+                                  <div className="config-panel subtask-config">
+                                    <div className="config-row">
+                                      <label>Max Tokens:</label>
+                                      <input
+                                        type="number"
+                                        className="config-input"
+                                        placeholder="e.g., 500"
+                                        value={subtask.config?.maxTokens || ""}
+                                        onChange={(e) =>
+                                          updateSubTaskConfig(
+                                            task.id,
+                                            subtask.id,
+                                            {
+                                              ...subtask.config,
+                                              maxTokens: e.target.value
+                                                ? parseInt(e.target.value)
+                                                : undefined,
+                                            }
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                    <div className="config-row">
+                                      <label>Response Type:</label>
+                                      <select
+                                        className="config-select"
+                                        value={
+                                          subtask.config?.responseType || ""
+                                        }
+                                        onChange={(e) =>
+                                          updateSubTaskConfig(
+                                            task.id,
+                                            subtask.id,
+                                            {
+                                              ...subtask.config,
+                                              responseType:
+                                                e.target.value || undefined,
+                                            }
+                                          )
+                                        }
+                                        aria-label="Response Type"
+                                      >
+                                        <option value="">Select...</option>
+                                        <option value="code">Code</option>
+                                        <option value="explanation">
+                                          Explanation
+                                        </option>
+                                        <option value="step-by-step">
+                                          Step-by-step
+                                        </option>
+                                        <option value="detailed">
+                                          Detailed
+                                        </option>
+                                        <option value="concise">Concise</option>
+                                        <option value="bullet-points">
+                                          Bullet Points
+                                        </option>
+                                      </select>
+                                    </div>
+                                    <div className="config-row">
+                                      <label>Format:</label>
+                                      <select
+                                        className="config-select"
+                                        value={subtask.config?.format || ""}
+                                        onChange={(e) =>
+                                          updateSubTaskConfig(
+                                            task.id,
+                                            subtask.id,
+                                            {
+                                              ...subtask.config,
+                                              format:
+                                                e.target.value || undefined,
+                                            }
+                                          )
+                                        }
+                                        aria-label="Output Format"
+                                      >
+                                        <option value="">Select...</option>
+                                        <option value="markdown">
+                                          Markdown
+                                        </option>
+                                        <option value="plain">
+                                          Plain Text
+                                        </option>
+                                        <option value="json">JSON</option>
+                                        <option value="xml">XML</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {tasks.length === 0 && (
+                    <div className="empty-state">
+                      Click "+ Add Task" to get started
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Section C: Role Management */}
+              <div className="section role-section">
+                <div className="section-header">
+                  <h2>Role</h2>
+                  <div className="button-group">
+                    <button className="add-button" onClick={addRole}>
+                      + Add Role
+                    </button>
+                    <button
+                      className="library-button"
+                      onClick={() => setShowLibrary("roles")}
+                      title="Pick from library"
+                    >
+                      👤
+                    </button>
+                  </div>
+                </div>
+
+                <div className="roles-list">
+                  {roles.map((role, roleIndex) => (
+                    <div
+                      key={role.id}
+                      className={`role-item-container ${
+                        draggedRoleIndex === roleIndex ? "dragging" : ""
+                      }`}
+                      onDragOver={(e) => handleRoleDragOver(e, roleIndex)}
+                    >
+                      <div className="role-header">
+                        <span
+                          className="drag-handle"
+                          title="Drag to reorder"
+                          draggable
+                          onDragStart={() => handleRoleDragStart(roleIndex)}
+                          onDragEnd={handleRoleDragEnd}
+                        >
+                          ⋮⋮
+                        </span>
+                        <input
+                          type="text"
+                          className="role-input"
+                          placeholder="Enter role title..."
+                          value={role.text}
+                          onChange={(e) =>
+                            updateRoleText(role.id, e.target.value)
+                          }
+                        />
+                        <button
+                          className="delete-button"
+                          onClick={() => deleteRole(role.id)}
+                          title="Delete Role"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div className="role-skills">
+                        <input
+                          type="text"
+                          className="skills-input"
+                          placeholder="Skills (comma-separated)..."
+                          value={role.skills.join(", ")}
+                          onChange={(e) =>
+                            updateRoleSkills(
+                              role.id,
+                              e.target.value
+                                .split(",")
+                                .map((s) => s.trim())
+                                .filter((s) => s)
+                            )
                           }
                         />
                       </div>
-                      <div className="config-row">
-                        <label>Response Type:</label>
-                        <select
-                          className="config-select"
-                          value={task.config?.responseType || ""}
-                          onChange={(e) =>
-                            updateTaskConfig(task.id, {
-                              ...task.config,
-                              responseType: e.target.value || undefined,
-                            })
-                          }
-                          aria-label="Response Type"
-                        >
-                          <option value="">Select...</option>
-                          <option value="code">Code</option>
-                          <option value="explanation">Explanation</option>
-                          <option value="step-by-step">Step-by-step</option>
-                          <option value="detailed">Detailed</option>
-                          <option value="concise">Concise</option>
-                          <option value="bullet-points">Bullet Points</option>
-                        </select>
-                      </div>
-                      <div className="config-row">
-                        <label>Format:</label>
-                        <select
-                          className="config-select"
-                          value={task.config?.format || ""}
-                          onChange={(e) =>
-                            updateTaskConfig(task.id, {
-                              ...task.config,
-                              format: e.target.value || undefined,
-                            })
-                          }
-                          aria-label="Output Format"
-                        >
-                          <option value="">Select...</option>
-                          <option value="markdown">Markdown</option>
-                          <option value="plain">Plain Text</option>
-                          <option value="json">JSON</option>
-                          <option value="xml">XML</option>
-                        </select>
-                      </div>
                     </div>
-                  )}
+                  ))}
 
-                  {task.subtasks.length > 0 && (
-                    <div className="subtasks-list">
-                      {task.subtasks.map((subtask, subtaskIndex) => (
-                        <div
-                          key={subtask.id}
-                          className={`subtask-item ${
-                            draggedSubTask?.taskId === task.id &&
-                            draggedSubTask?.index === subtaskIndex
-                              ? "dragging"
-                              : ""
-                          }`}
-                          onDragOver={(e) =>
-                            handleSubTaskDragOver(e, task.id, subtaskIndex)
-                          }
-                        >
-                          <div className="subtask-header">
-                            <span
-                              className="drag-handle small"
-                              title="Drag to reorder"
-                              draggable
-                              onDragStart={() =>
-                                handleSubTaskDragStart(task.id, subtaskIndex)
-                              }
-                              onDragEnd={handleSubTaskDragEnd}
-                            >
-                              ⋮⋮
-                            </span>
-                            <span className="subtask-label">SubTask:</span>
-                            <input
-                              type="text"
-                              className="subtask-input"
-                              placeholder="Enter subtask description..."
-                              value={subtask.text}
-                              onChange={(e) =>
-                                updateSubTaskText(
-                                  task.id,
-                                  subtask.id,
-                                  e.target.value
-                                )
-                              }
-                            />
-                            <button
-                              className={`config-button small ${
-                                subtask.config ? "has-config" : ""
-                              }`}
-                              onClick={() =>
-                                setShowSubTaskConfig(
-                                  showSubTaskConfig?.taskId === task.id &&
-                                    showSubTaskConfig?.subtaskId === subtask.id
-                                    ? null
-                                    : { taskId: task.id, subtaskId: subtask.id }
-                                )
-                              }
-                              title="Configure output behavior"
-                            >
-                              ⚙️
-                            </button>
-                            <button
-                              className="delete-button small"
-                              onClick={() => deleteSubTask(task.id, subtask.id)}
-                              title="Delete SubTask"
-                            >
-                              ×
-                            </button>
-                          </div>
-
-                          {showSubTaskConfig?.taskId === task.id &&
-                            showSubTaskConfig?.subtaskId === subtask.id && (
-                              <div className="config-panel subtask-config">
-                                <div className="config-row">
-                                  <label>Max Tokens:</label>
-                                  <input
-                                    type="number"
-                                    className="config-input"
-                                    placeholder="e.g., 500"
-                                    value={subtask.config?.maxTokens || ""}
-                                    onChange={(e) =>
-                                      updateSubTaskConfig(task.id, subtask.id, {
-                                        ...subtask.config,
-                                        maxTokens: e.target.value
-                                          ? parseInt(e.target.value)
-                                          : undefined,
-                                      })
-                                    }
-                                  />
-                                </div>
-                                <div className="config-row">
-                                  <label>Response Type:</label>
-                                  <select
-                                    className="config-select"
-                                    value={subtask.config?.responseType || ""}
-                                    onChange={(e) =>
-                                      updateSubTaskConfig(task.id, subtask.id, {
-                                        ...subtask.config,
-                                        responseType:
-                                          e.target.value || undefined,
-                                      })
-                                    }
-                                    aria-label="Response Type"
-                                  >
-                                    <option value="">Select...</option>
-                                    <option value="code">Code</option>
-                                    <option value="explanation">
-                                      Explanation
-                                    </option>
-                                    <option value="step-by-step">
-                                      Step-by-step
-                                    </option>
-                                    <option value="detailed">Detailed</option>
-                                    <option value="concise">Concise</option>
-                                    <option value="bullet-points">
-                                      Bullet Points
-                                    </option>
-                                  </select>
-                                </div>
-                                <div className="config-row">
-                                  <label>Format:</label>
-                                  <select
-                                    className="config-select"
-                                    value={subtask.config?.format || ""}
-                                    onChange={(e) =>
-                                      updateSubTaskConfig(task.id, subtask.id, {
-                                        ...subtask.config,
-                                        format: e.target.value || undefined,
-                                      })
-                                    }
-                                    aria-label="Output Format"
-                                  >
-                                    <option value="">Select...</option>
-                                    <option value="markdown">Markdown</option>
-                                    <option value="plain">Plain Text</option>
-                                    <option value="json">JSON</option>
-                                    <option value="xml">XML</option>
-                                  </select>
-                                </div>
-                              </div>
-                            )}
-                        </div>
-                      ))}
+                  {roles.length === 0 && (
+                    <div className="empty-state">
+                      Click "+ Add Role" or 👤 to pick from library
                     </div>
                   )}
                 </div>
-              ))}
-
-              {tasks.length === 0 && (
-                <div className="empty-state">
-                  Click "+ Add Task" to get started
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Section C: Role Management */}
-          <div className="section role-section">
-            <div className="section-header">
-              <h2>Role</h2>
-              <div className="button-group">
-                <button className="add-button" onClick={addRole}>
-                  + Add Role
-                </button>
-                <button
-                  className="library-button"
-                  onClick={() => setShowLibrary("roles")}
-                  title="Pick from library"
-                >
-                  👤
-                </button>
               </div>
-            </div>
 
-            <div className="roles-list">
-              {roles.map((role, roleIndex) => (
-                <div
-                  key={role.id}
-                  className={`role-item-container ${
-                    draggedRoleIndex === roleIndex ? "dragging" : ""
-                  }`}
-                  onDragOver={(e) => handleRoleDragOver(e, roleIndex)}
-                >
-                  <div className="role-header">
-                    <span
-                      className="drag-handle"
-                      title="Drag to reorder"
-                      draggable
-                      onDragStart={() => handleRoleDragStart(roleIndex)}
-                      onDragEnd={handleRoleDragEnd}
-                    >
-                      ⋮⋮
-                    </span>
-                    <input
-                      type="text"
-                      className="role-input"
-                      placeholder="Enter role title..."
-                      value={role.text}
-                      onChange={(e) => updateRoleText(role.id, e.target.value)}
-                    />
+              {/* Section D: Context Management */}
+              <div className="section context-section">
+                <div className="section-header">
+                  <h2>Context</h2>
+                  <div className="button-group">
+                    <button className="add-button" onClick={addContext}>
+                      + Add Context
+                    </button>
                     <button
-                      className="delete-button"
-                      onClick={() => deleteRole(role.id)}
-                      title="Delete Role"
+                      className="library-button"
+                      onClick={() => setShowLibrary("contexts")}
+                      title="Pick from library"
                     >
-                      ×
+                      📚
                     </button>
                   </div>
-                  <div className="role-skills">
-                    <input
-                      type="text"
-                      className="skills-input"
-                      placeholder="Skills (comma-separated)..."
-                      value={role.skills.join(", ")}
-                      onChange={(e) =>
-                        updateRoleSkills(
-                          role.id,
-                          e.target.value
-                            .split(",")
-                            .map((s) => s.trim())
-                            .filter((s) => s)
-                        )
-                      }
-                    />
+                </div>
+
+                <div className="items-list">
+                  {contexts.map((context, contextIndex) => (
+                    <div
+                      key={context.id}
+                      className={`item ${
+                        draggedContextIndex === contextIndex ? "dragging" : ""
+                      }`}
+                      onDragOver={(e) => handleContextDragOver(e, contextIndex)}
+                    >
+                      <span
+                        className="drag-handle"
+                        title="Drag to reorder"
+                        draggable
+                        onDragStart={() => handleContextDragStart(contextIndex)}
+                        onDragEnd={handleContextDragEnd}
+                      >
+                        ⋮⋮
+                      </span>
+                      <span className="item-number">{contextIndex + 1}.</span>
+                      <input
+                        type="text"
+                        className="item-input"
+                        placeholder="Enter context information..."
+                        value={context.text}
+                        onChange={(e) =>
+                          updateContextText(context.id, e.target.value)
+                        }
+                      />
+                      <button
+                        className="delete-button"
+                        onClick={() => deleteContext(context.id)}
+                        title="Delete Context"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+
+                  {contexts.length === 0 && (
+                    <div className="empty-state">
+                      Click "+ Add Context" to get started
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Section E: Guard-rails Management */}
+              <div className="section guardrails-section">
+                <div className="section-header">
+                  <h2>Guard-rails</h2>
+                  <div className="button-group">
+                    <button className="add-button" onClick={addGuardRail}>
+                      + Add Guard-rail
+                    </button>
+                    <button
+                      className="library-button"
+                      onClick={() => setShowLibrary("guardrails")}
+                      title="Pick from library"
+                    >
+                      📚
+                    </button>
                   </div>
                 </div>
-              ))}
 
-              {roles.length === 0 && (
-                <div className="empty-state">
-                  Click "+ Add Role" or 👤 to pick from library
+                <div className="items-list">
+                  {guardRails.map((guardRail, guardRailIndex) => (
+                    <div
+                      key={guardRail.id}
+                      className={`item ${
+                        draggedGuardRailIndex === guardRailIndex
+                          ? "dragging"
+                          : ""
+                      }`}
+                      onDragOver={(e) =>
+                        handleGuardRailDragOver(e, guardRailIndex)
+                      }
+                    >
+                      <span
+                        className="drag-handle"
+                        title="Drag to reorder"
+                        draggable
+                        onDragStart={() =>
+                          handleGuardRailDragStart(guardRailIndex)
+                        }
+                        onDragEnd={handleGuardRailDragEnd}
+                      >
+                        ⋮⋮
+                      </span>
+                      <span className="item-number">{guardRailIndex + 1}.</span>
+                      <input
+                        type="text"
+                        className="item-input"
+                        placeholder="Enter guard-rail..."
+                        value={guardRail.text}
+                        onChange={(e) =>
+                          updateGuardRailText(guardRail.id, e.target.value)
+                        }
+                      />
+                      <button
+                        className="delete-button"
+                        onClick={() => deleteGuardRail(guardRail.id)}
+                        title="Delete Guard-rail"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+
+                  {guardRails.length === 0 && (
+                    <div className="empty-state">
+                      Click "+ Add Guard-rail" to get started
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Section D: Context Management */}
-          <div className="section context-section">
-            <div className="section-header">
-              <h2>Context</h2>
-              <div className="button-group">
-                <button className="add-button" onClick={addContext}>
-                  + Add Context
-                </button>
-                <button
-                  className="library-button"
-                  onClick={() => setShowLibrary("contexts")}
-                  title="Pick from library"
-                >
-                  📚
-                </button>
               </div>
-            </div>
-
-            <div className="items-list">
-              {contexts.map((context, contextIndex) => (
-                <div
-                  key={context.id}
-                  className={`item ${
-                    draggedContextIndex === contextIndex ? "dragging" : ""
-                  }`}
-                  onDragOver={(e) => handleContextDragOver(e, contextIndex)}
-                >
-                  <span
-                    className="drag-handle"
-                    title="Drag to reorder"
-                    draggable
-                    onDragStart={() => handleContextDragStart(contextIndex)}
-                    onDragEnd={handleContextDragEnd}
-                  >
-                    ⋮⋮
-                  </span>
-                  <span className="item-number">{contextIndex + 1}.</span>
-                  <input
-                    type="text"
-                    className="item-input"
-                    placeholder="Enter context information..."
-                    value={context.text}
-                    onChange={(e) =>
-                      updateContextText(context.id, e.target.value)
-                    }
-                  />
-                  <button
-                    className="delete-button"
-                    onClick={() => deleteContext(context.id)}
-                    title="Delete Context"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-
-              {contexts.length === 0 && (
-                <div className="empty-state">
-                  Click "+ Add Context" to get started
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Section E: Guard-rails Management */}
-          <div className="section guardrails-section">
-            <div className="section-header">
-              <h2>Guard-rails</h2>
-              <div className="button-group">
-                <button className="add-button" onClick={addGuardRail}>
-                  + Add Guard-rail
-                </button>
-                <button
-                  className="library-button"
-                  onClick={() => setShowLibrary("guardrails")}
-                  title="Pick from library"
-                >
-                  📚
-                </button>
-              </div>
-            </div>
-
-            <div className="items-list">
-              {guardRails.map((guardRail, guardRailIndex) => (
-                <div
-                  key={guardRail.id}
-                  className={`item ${
-                    draggedGuardRailIndex === guardRailIndex ? "dragging" : ""
-                  }`}
-                  onDragOver={(e) => handleGuardRailDragOver(e, guardRailIndex)}
-                >
-                  <span
-                    className="drag-handle"
-                    title="Drag to reorder"
-                    draggable
-                    onDragStart={() => handleGuardRailDragStart(guardRailIndex)}
-                    onDragEnd={handleGuardRailDragEnd}
-                  >
-                    ⋮⋮
-                  </span>
-                  <span className="item-number">{guardRailIndex + 1}.</span>
-                  <input
-                    type="text"
-                    className="item-input"
-                    placeholder="Enter guard-rail..."
-                    value={guardRail.text}
-                    onChange={(e) =>
-                      updateGuardRailText(guardRail.id, e.target.value)
-                    }
-                  />
-                  <button
-                    className="delete-button"
-                    onClick={() => deleteGuardRail(guardRail.id)}
-                    title="Delete Guard-rail"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-
-              {guardRails.length === 0 && (
-                <div className="empty-state">
-                  Click "+ Add Guard-rail" to get started
-                </div>
-              )}
             </div>
           </div>
         </div>
