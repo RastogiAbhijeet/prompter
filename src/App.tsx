@@ -89,7 +89,9 @@ function App() {
     taskId: number;
     subtaskId: number;
   } | null>(null);
-  const [newSkillInputs, setNewSkillInputs] = useState<{ [roleId: number]: string }>({});
+  const [newSkillInputs, setNewSkillInputs] = useState<{
+    [roleId: number]: string;
+  }>({});
 
   const addTask = () => {
     const newTask: Task = {
@@ -1535,7 +1537,9 @@ function App() {
                               {skill}
                               <button
                                 className="skill-remove"
-                                onClick={() => removeSkillFromRole(role.id, skill)}
+                                onClick={() =>
+                                  removeSkillFromRole(role.id, skill)
+                                }
                                 title="Remove skill"
                                 aria-label={`Remove ${skill}`}
                               >
@@ -1556,7 +1560,9 @@ function App() {
                                 [role.id]: e.target.value,
                               })
                             }
-                            onKeyPress={(e) => handleSkillInputKeyPress(e, role.id)}
+                            onKeyPress={(e) =>
+                              handleSkillInputKeyPress(e, role.id)
+                            }
                           />
                           <button
                             className="add-skill-button"
