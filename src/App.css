@@ -20,7 +20,7 @@
   text-align: center;
   margin: 0;
   color: #646cff;
-  font-size: 2.5rem;
+  font-size: 1.75rem;
 }
 
 /* Templates Dropdown */
@@ -143,12 +143,12 @@
 
 .prompt-title-input {
   flex: 1;
-  padding: 0.75rem 1rem;
+  padding: 0.6rem 0.8rem;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   color: rgba(255, 255, 255, 0.9);
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 500;
   transition: all 0.2s ease;
 }
@@ -400,7 +400,7 @@
 }
 
 .history-title-inline {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
   margin-bottom: 0.25rem;
@@ -488,7 +488,7 @@
 /* Keyboard Shortcuts */
 .shortcuts-text {
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: rgba(255, 255, 255, 0.6);
   font-family: "Fira Mono", monospace;
   flex-shrink: 0;
@@ -587,7 +587,7 @@
 
 .section-header h2 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.1rem;
   color: rgba(255, 255, 255, 0.9);
 }
 
@@ -647,7 +647,7 @@
   overflow-y: auto;
   text-align: left;
   font-family: "Fira Mono", monospace;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   white-space: pre-wrap;
   word-wrap: break-word;
   line-height: 1.6;
